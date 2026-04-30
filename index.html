@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<!-- Identification: 24F-0736 -->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light">
+    <title>Wumpus World — KB Agent</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-title">
+                <h1>Wumpus KB Agent</h1>
+                <span class="badge">Logic Module v2.8</span>
+            </div>
+            <div class="controls">
+                <div class="input-group">
+                    <label for="gridRows">Rows</label>
+                    <input type="number" id="gridRows" value="4" min="3" max="8">
+                </div>
+                <div class="input-group">
+                    <label for="gridCols">Cols</label>
+                    <input type="number" id="gridCols" value="4" min="3" max="8">
+                </div>
+                <button id="startBtn" class="btn-primary">New Game</button>
+                <button id="stepBtn" class="btn-secondary" disabled>Step Agent</button>
+            </div>
+        </header>
+
+        <div id="statusBanner" class="status-banner hidden"></div>
+
+        <main>
+            <div class="panel left-panel">
+                <div id="grid" class="grid-container"></div>
+            </div>
+
+            <div class="panel right-panel">
+                <div class="panel-section">
+                    <h3>Session Telemetry</h3>
+                    <div class="metric-row">
+                        <span class="metric-label">Current Node</span>
+                        <span class="metric-value" id="posMetric">(1, 1)</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Active Percepts</span>
+                        <span class="metric-value" id="perceptsMetric">None</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Resolution Steps</span>
+                        <span class="metric-value" id="inferenceMetric">0</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">KB Clauses</span>
+                        <span class="metric-value" id="kbMetric">0</span>
+                    </div>
+                    <div id="goldStatus" class="gold-status"></div>
+                    <div id="arrowStatus" class="arrow-status"></div>
+                </div>
+
+                <div class="panel-section">
+                    <h3>Environment Legend</h3>
+                    <div class="legend-grid">
+                        <div class="legend-item">
+                            <div class="legend-box agent">A</div> Agent Location
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-box safe"></div> Visited Safe (Green)
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-box unknown"></div> Unvisited (Gray)
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-box danger">✕</div> Confirmed Hazard (Red)
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-box gold">G</div> Discovered Gold
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <h3>Algorithm</h3>
+                    <p class="help-text">
+                        KB stores percept biconditionals in <strong>CNF</strong>.
+                        The agent uses <strong>Set-of-Support Resolution Refutation</strong> 
+                        to prove a cell is safe before entering it. The Wumpus is only shot if 
+                        its location is mathematically proven.
+                    </p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
