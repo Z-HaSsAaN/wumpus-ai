@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light">
+    <title>Wumpus World — KB Agent</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-title">
+                <h1>Wumpus KB Agent</h1>
+                <span class="badge">Logic Module v2.8 · Python</span>
+            </div>
+            <div class="controls">
+                <div class="input-group">
+                    <label for="gridRows">Rows</label>
+                    <input type="number" id="gridRows" value="4" min="3" max="8">
+                </div>
+                <div class="input-group">
+                    <label for="gridCols">Cols</label>
+                    <input type="number" id="gridCols" value="4" min="3" max="8">
+                </div>
+                <button id="startBtn" class="btn-primary">New Game</button>
+                <button id="stepBtn" class="btn-secondary" disabled>Step Agent</button>
+            </div>
+        </header>
+
+        <div id="statusBanner" class="status-banner hidden"></div>
+
+        <main>
+            <div class="panel left-panel">
+                <div id="grid" class="grid-container"></div>
+            </div>
+
+            <div class="panel right-panel">
+                <div class="panel-section">
+                    <h3>Session Telemetry</h3>
+                    <div class="metric-row">
+                        <span class="metric-label">Current Node</span>
+                        <span class="metric-value" id="posMetric">(1, 1)</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Active Percepts</span>
+                        <span class="metric-value" id="perceptsMetric">None</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Resolution Steps</span>
+                        <span class="metric-value" id="inferenceMetric">0</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">KB Clauses</span>
+                        <span class="metric-value" id="kbMetric">0</span>
+                    </div>
+                    <div id="goldStatus" class="gold-status"></div>
+                    <div id="arrowStatus" class="arrow-status"></div>
+                </div>
+
+                <div class="panel-section">
+                    <h3>Environment Legend</h3>
+                    <div class="legend-grid">
+                        <div class="legend-item">
+                            <div class="legend-box agent">A</div> Agent Location
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-box safe"></div> Visited Safe (Green)
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-box unknown"></div> Unvisited (Gray)
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-box danger">✕</div> Confirmed Hazard (Red)
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-box gold">G</div> Discovered Gold
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <h3>Algorithm</h3>
+                    <p class="help-text">
+                        KB stores percept biconditionals in <strong>CNF</strong>.
+                        The agent uses <strong>Set-of-Support Resolution Refutation</strong>
+                        to prove a cell is safe before entering it. The Wumpus is shot if
+                        its location is proven, or speculatively if the agent is stalled
+                        and detects stench.
+                    </p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+    'use strict';
+
+    let state = null;
+
+    const $ = id => document.getElementById(id);
+
+    const DOM = {
+        grid:        $('grid'),
+        startBtn:    $('startBtn'),
+        stepBtn:     $('stepBtn'),
+        banner:      $('statusBanner'),
+        posMetric:   $('posMetric'),
+        percMetric:  $('perceptsMetric'),
+        infMetric:   $('inferenceMetric'),
+        kbMetric:    $('kbMetric'),
+        goldStatus:  $('goldStatus'),
+        arrowStatus: $('arrowStatus'),
+        rowsInput:   $('gridRows'),
+        colsInput:   $('gridCols'),
+    };
+
+    async function apiCall(endpoint, body = {}) {
+        const res  = await fetch(endpoint, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify(body),
+        });
+        return res.json();
+    }
+
+    function render(data) {
+        state = data;
+        const { world, agent, kb } = data;
+        const { rows, cols }       = world;
+
+        const pitsSet   = new Set(world.pits);
+        const visitedSet= new Set(agent.visited);
+        const dangerSet = new Set(agent.danger);
+
+        DOM.grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+        DOM.grid.innerHTML = '';
+
+        for (let r = rows; r >= 1; r--) {
+            for (let c = 1; c <= cols; c++) {
+                const key      = `${r},${c}`;
+                const isAgent  = agent.r === r && agent.c === c;
+                const reveal   = visitedSet.has(key);
+                const isPit    = pitsSet.has(key);
+                const isWumpus = world.wumpus === key;
+                const isHazard = dangerSet.has(key) || (reveal && (isPit || isWumpus));
+                const isGold   = key === agent.gold_found_at;
+
+                const div = document.createElement('div');
+                div.className = 'cell';
+
+                if (isAgent) {
+                    div.classList.add('agent');
+                    if (agent.game_over) div.classList.add('dead');
+                    else if (agent.game_won) div.classList.add('won');
+                } else if (isHazard) {
+                    div.classList.add('danger');
+                } else if (visitedSet.has(key)) {
+                    div.classList.add('safe');
+                }
+
+                const lbl = document.createElement('span');
+                lbl.className   = 'coord-label';
+                lbl.textContent = `${c},${r}`;
+                div.appendChild(lbl);
+
+                let icon = '';
+                if (isAgent) {
+                    icon = agent.game_over ? '💀' : (agent.game_won ? '🏆' : 'A');
+                } else if (reveal && isPit) {
+                    icon = '🕳';
+                } else if (reveal && isWumpus && world.wumpus_alive) {
+                    icon = 'W';
+                } else if (isGold) {
+                    div.classList.add('gold');
+                    icon = 'G';
+                } else if (dangerSet.has(key)) {
+                    icon = '✕';
+                }
+
+                if (icon) {
+                    const span = document.createElement('span');
+                    span.className   = 'cell-icon';
+                    span.textContent = icon;
+                    div.appendChild(span);
+                }
+
+                DOM.grid.appendChild(div);
+            }
+        }
+
+        DOM.posMetric.textContent  = `(${agent.c}, ${agent.r})`;
+        DOM.percMetric.textContent = agent.percepts.join(', ');
+        DOM.infMetric.textContent  = kb.steps.toLocaleString();
+        DOM.kbMetric.textContent   = kb.count;
+
+        DOM.goldStatus.textContent = agent.has_gold
+            ? (agent.game_won ? '🏆 Safely extracted!' : '💰 Gold Collected! Returning...')
+            : '';
+
+        DOM.arrowStatus.textContent = agent.has_arrow ? '🏹 Arrow: Ready' : '🏹 Arrow: Used';
+        DOM.arrowStatus.className   = agent.has_arrow ? 'arrow-status' : 'arrow-status used';
+
+        const b = DOM.banner;
+        b.className = 'status-banner';
+
+        if (agent.game_over) {
+            b.classList.add('dead');
+            b.textContent = `💀 Agent terminated — ${agent.percepts.join(', ')}`;
+            DOM.stepBtn.disabled = true;
+        } else if (agent.game_won) {
+            b.classList.add('win');
+            b.textContent = '🏆 Objective complete — Climbed out with gold!';
+            DOM.stepBtn.disabled = true;
+        } else if (agent.stalled) {
+            b.classList.add('stalled');
+            b.textContent = '⚠ No provably safe moves remain — agent stalled.';
+            DOM.stepBtn.disabled = true;
+        } else {
+            b.classList.add('hidden');
+        }
+    }
+
+    function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+    DOM.startBtn.addEventListener('click', async () => {
+        const rows = clamp(parseInt(DOM.rowsInput.value) || 4, 3, 8);
+        const cols = clamp(parseInt(DOM.colsInput.value) || 4, 3, 8);
+        const data = await apiCall('/new_game', { rows, cols });
+        DOM.stepBtn.disabled = false;
+        render(data);
+    });
+
+    DOM.stepBtn.addEventListener('click', async () => {
+        if (!state) return;
+        const { agent } = state;
+        if (agent.game_over || agent.game_won || agent.stalled) return;
+        const data = await apiCall('/step');
+        render(data);
+    });
+
+    // Auto-start on load
+    DOM.startBtn.click();
+    </script>
+</body>
+</html>
