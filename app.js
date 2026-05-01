@@ -1,4 +1,5 @@
 // Identification: 24F-0736
+// app.js
 'use strict';
 
 const DIRS = [
@@ -30,14 +31,29 @@ function createWorld(rows, cols) {
         if (!startSafe.has(k) && Math.random() < 0.2) pits.add(k);
     });
 
-    const preferred = shuffle(
+    // FIX 1: Wumpus must never be placed in the start-safe zone
+    const wumpusCandidates = shuffle(
         nonStart.filter(k => !pits.has(k) && !startSafe.has(k))
     );
-    const fallback = shuffle(nonStart.filter(k => !pits.has(k) && k !== '1,1'));
-    const pool = preferred.length >= 2 ? preferred : fallback;
+    // Absolute fallback for pathologically small/pit-heavy grids
+    const wumpus = wumpusCandidates.length > 0
+        ? wumpusCandidates[0]
+        : shuffle(nonStart.filter(k => !pits.has(k)))[0];
 
-    const wumpus = pool[0];
-    const gold   = pool.length > 1 ? pool[1] : pool[0];
+    // FIX 3: Gold must occupy a cell that has at least one non-pit neighbour
+    // (prevents gold being sealed behind an impassable pit wall)
+    const goldCandidates = shuffle(
+        nonStart.filter(k => {
+            if (pits.has(k) || k === wumpus || k === '1,1') return false;
+            const [r, c] = k.split(',').map(Number);
+            return getNeighbours(r, c, rows, cols)
+                .some(([nr, nc]) => !pits.has(`${nr},${nc}`));
+        })
+    );
+    // Hard fallback: any non-pit, non-wumpus cell
+    const gold = goldCandidates.length > 0
+        ? goldCandidates[0]
+        : shuffle(nonStart.filter(k => !pits.has(k) && k !== wumpus && k !== '1,1'))[0];
 
     return { rows, cols, pits, wumpus, gold, wumpusAlive: true };
 }
@@ -71,7 +87,7 @@ function createKB() {
     return { clauses: [], keySet: new Set(), steps: 0 };
 }
 
-const neg      = lit => lit.startsWith('-') ? lit.slice(1) : '-' + lit;
+const neg       = lit => lit.startsWith('-') ? lit.slice(1) : '-' + lit;
 const clauseKey = clause => [...clause].sort().join('|');
 
 function tell(kbObj, literals) {
@@ -91,10 +107,10 @@ function tell(kbObj, literals) {
 }
 
 function ask(kbObj, literal, maxSteps = 5000) {
-    const seed  = new Set([neg(literal)]);
-    const sos   = [seed];
-    const seen  = new Set([clauseKey(seed)]);
-    let   steps = 0;
+    const seed = new Set([neg(literal)]);
+    const sos  = [seed];
+    const seen = new Set([clauseKey(seed)]);
+    let steps  = 0;
 
     for (let i = 0; i < sos.length && steps < maxSteps; i++) {
         const c1 = sos[i];
@@ -142,8 +158,8 @@ function tellPerceptAxioms(r, c, w, kbObj) {
     const stench  = hasStenchAt(r, c, w);
     const glitter = (w.gold === `${r},${c}`);
 
-    tell(kbObj, [breeze ? Br : neg(Br)]);
-    tell(kbObj, [stench ? Sr : neg(Sr)]);
+    tell(kbObj, [breeze  ? Br  : neg(Br)]);
+    tell(kbObj, [stench  ? Sr  : neg(Sr)]);
 
     return { breeze, stench, glitter };
 }
@@ -151,17 +167,17 @@ function tellPerceptAxioms(r, c, w, kbObj) {
 function createAgent() {
     return {
         r: 1, c: 1,
-        visited:  new Set(['1,1']),
-        safe:     new Set(['1,1']),
-        danger:   new Set(),
+        visited:     new Set(['1,1']),
+        safe:        new Set(['1,1']),
+        danger:      new Set(),
         goldFoundAt: null,
-        path:     [],
-        percepts: ['None'],
-        gameOver: false,
-        gameWon:  false,
-        hasGold:  false,
-        hasArrow: true, 
-        stalled:  false,
+        path:        [],
+        percepts:    ['None'],
+        gameOver:    false,
+        gameWon:     false,
+        hasGold:     false,
+        hasArrow:    true,
+        stalled:     false,
     };
 }
 
@@ -231,40 +247,89 @@ function planPath(ag, w) {
     return [];
 }
 
+// FIX 2: Speculative shooting — fires toward any danger cell in line when stalled with stench.
+// On a miss, asserts -W for every cell along the arrow's path, feeding new facts into the KB.
 function attemptShoot(ag, w, kbObj) {
     if (!ag.hasArrow) return false;
-    
-    let wumpusProvenLocation = null;
 
+    let shootDir = null;
+
+    // Priority 1: proven wumpus location in same column
     for (let r = 1; r <= w.rows; r++) {
-        if (ask(kbObj, `W_${r}_${ag.c}`)) { wumpusProvenLocation = `${r},${ag.c}`; break; }
-    }
-    if (!wumpusProvenLocation) {
-        for (let c = 1; c <= w.cols; c++) {
-            if (ask(kbObj, `W_${ag.r}_${c}`)) { wumpusProvenLocation = `${ag.r},${c}`; break; }
+        if (r === ag.r) continue;
+        if (ask(kbObj, `W_${r}_${ag.c}`)) {
+            shootDir = { dr: r > ag.r ? 1 : -1, dc: 0 };
+            break;
         }
     }
 
-    if (wumpusProvenLocation) {
-        ag.hasArrow = false; 
-        w.wumpusAlive = false;
-        
-        for (let r = 1; r <= w.rows; r++) {
-            for (let c = 1; c <= w.cols; c++) {
-                tell(kbObj, [`-W_${r}_${c}`]);
+    // Priority 2: proven wumpus location in same row
+    if (!shootDir) {
+        for (let c = 1; c <= w.cols; c++) {
+            if (c === ag.c) continue;
+            if (ask(kbObj, `W_${ag.r}_${c}`)) {
+                shootDir = { dr: 0, dc: c > ag.c ? 1 : -1 };
+                break;
             }
         }
-        
+    }
+
+    // Priority 3: speculative — stench here, aim at the first danger cell in any direction
+    if (!shootDir) {
+        const hasStench = kbObj.clauses.some(
+            cl => cl.size === 1 && [...cl][0] === `S_${ag.r}_${ag.c}`
+        );
+        if (hasStench) {
+            outer:
+            for (const { dr, dc } of DIRS) {
+                let r = ag.r + dr, c = ag.c + dc;
+                while (r >= 1 && r <= w.rows && c >= 1 && c <= w.cols) {
+                    if (ag.danger.has(`${r},${c}`)) {
+                        shootDir = { dr, dc };
+                        break outer;
+                    }
+                    r += dr; c += dc;
+                }
+            }
+        }
+    }
+
+    if (!shootDir) return false;
+
+    ag.hasArrow = false;
+
+    // Trace arrow and check for hit
+    let ar = ag.r + shootDir.dr, ac = ag.c + shootDir.dc;
+    let hit = false;
+    while (ar >= 1 && ar <= w.rows && ac >= 1 && ac <= w.cols) {
+        if (w.wumpusAlive && w.wumpus === `${ar},${ac}`) { hit = true; break; }
+        ar += shootDir.dr;
+        ac += shootDir.dc;
+    }
+
+    if (hit) {
+        w.wumpusAlive = false;
+        for (let r = 1; r <= w.rows; r++)
+            for (let c = 1; c <= w.cols; c++)
+                tell(kbObj, [`-W_${r}_${c}`]);
+        // Cells only dangerous due to wumpus can now be cleared
         ag.danger = new Set([...ag.danger].filter(k => {
-            const [r,c] = k.split(',').map(Number);
+            const [r, c] = k.split(',').map(Number);
             return ask(kbObj, `P_${r}_${c}`);
         }));
-        
         ag.percepts.push('Scream! Wumpus killed.');
-        return true; 
+    } else {
+        // Assert wumpus is NOT in every cell the arrow passed through
+        let r = ag.r + shootDir.dr, c = ag.c + shootDir.dc;
+        while (r >= 1 && r <= w.rows && c >= 1 && c <= w.cols) {
+            tell(kbObj, [`-W_${r}_${c}`]);
+            r += shootDir.dr;
+            c += shootDir.dc;
+        }
+        ag.percepts.push('Arrow missed.');
     }
-    
-    return false;
+
+    return true; // arrow was fired regardless of outcome
 }
 
 function formatPercepts({ breeze, stench, glitter }) {
@@ -282,18 +347,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const $ = id => document.getElementById(id);
 
     const DOM = {
-        grid:       $('grid'),
-        startBtn:   $('startBtn'),
-        stepBtn:    $('stepBtn'),
-        banner:     $('statusBanner'),
-        posMetric:  $('posMetric'),
-        percMetric: $('perceptsMetric'),
-        infMetric:  $('inferenceMetric'),
-        kbMetric:   $('kbMetric'),
-        goldStatus: $('goldStatus'),
-        arrowStatus:$('arrowStatus'),
-        rowsInput:  $('gridRows'),
-        colsInput:  $('gridCols'),
+        grid:        $('grid'),
+        startBtn:    $('startBtn'),
+        stepBtn:     $('stepBtn'),
+        banner:      $('statusBanner'),
+        posMetric:   $('posMetric'),
+        percMetric:  $('perceptsMetric'),
+        infMetric:   $('inferenceMetric'),
+        kbMetric:    $('kbMetric'),
+        goldStatus:  $('goldStatus'),
+        arrowStatus: $('arrowStatus'),
+        rowsInput:   $('gridRows'),
+        colsInput:   $('gridCols'),
     };
 
     function render() {
@@ -305,11 +370,11 @@ document.addEventListener('DOMContentLoaded', () => {
             for (let c = 1; c <= cols; c++) {
                 const key      = `${r},${c}`;
                 const isAgent  = agent.r === r && agent.c === c;
-                const reveal   = agent.visited.has(key); 
+                const reveal   = agent.visited.has(key);
                 const isPit    = world.pits.has(key);
                 const isWumpus = world.wumpus === key;
-                
-                const isHazard = agent.danger.has(key) || (reveal && (isPit || isWumpus));
+
+                const isHazard         = agent.danger.has(key) || (reveal && (isPit || isWumpus));
                 const isDiscoveredGold = key === agent.goldFoundAt;
 
                 const div = document.createElement('div');
@@ -317,13 +382,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (isAgent) {
                     div.classList.add('agent');
-                    if (agent.gameOver) div.classList.add('dead');
+                    if (agent.gameOver)     div.classList.add('dead');
                     else if (agent.gameWon) div.classList.add('won');
-
                 } else if (isHazard) {
-                    div.classList.add('danger'); 
+                    div.classList.add('danger');
                 } else if (agent.visited.has(key)) {
-                    div.classList.add('safe');  
+                    div.classList.add('safe');
                 }
 
                 const lbl = document.createElement('span');
@@ -338,11 +402,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     icon = '🕳';
                 } else if (reveal && isWumpus && world.wumpusAlive) {
                     icon = 'W';
-                } else if (isDiscoveredGold) { 
-                     div.classList.add('gold');
-                     icon = 'G';
+                } else if (isDiscoveredGold) {
+                    div.classList.add('gold');
+                    icon = 'G';
                 } else if (agent.danger.has(key)) {
-                    icon = '✕'; 
+                    icon = '✕';
                 }
 
                 if (icon) {
@@ -360,10 +424,12 @@ document.addEventListener('DOMContentLoaded', () => {
         DOM.percMetric.textContent = agent.percepts.join(', ');
         DOM.infMetric.textContent  = kb.steps.toLocaleString();
         DOM.kbMetric.textContent   = kb.clauses.length;
-        DOM.goldStatus.textContent = agent.hasGold ? (agent.gameWon ? '🏆 Safely extracted!' : '💰 Gold Collected! Returning...') : '';
-        
+        DOM.goldStatus.textContent = agent.hasGold
+            ? (agent.gameWon ? '🏆 Safely extracted!' : '💰 Gold Collected! Returning...')
+            : '';
+
         DOM.arrowStatus.textContent = agent.hasArrow ? '🏹 Arrow: Ready' : '🏹 Arrow: Used';
-        DOM.arrowStatus.className = agent.hasArrow ? 'arrow-status' : 'arrow-status used';
+        DOM.arrowStatus.className   = agent.hasArrow ? 'arrow-status' : 'arrow-status used';
 
         const b = DOM.banner;
         b.className = 'status-banner';
@@ -392,7 +458,7 @@ document.addEventListener('DOMContentLoaded', () => {
         world = createWorld(rows, cols);
         agent = createAgent();
         kb    = createKB();
-        
+
         const p = tellPerceptAxioms(1, 1, world, kb);
         agent.percepts = formatPercepts(p);
         inferAll(agent, world, kb);
@@ -409,16 +475,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (agent.path.length === 0) {
                 if (agent.hasArrow) {
-                     const shotResult = attemptShoot(agent, world, kb);
-                     if(shotResult) {
-                         inferAll(agent, world, kb);
-                         agent.path = planPath(agent, world);
-                         if (agent.path.length > 0) {
-                             agent.stalled = false;
-                             render();
-                             return; 
-                         }
-                     }
+                    // attemptShoot returns true whether hit OR miss (arrow was fired)
+                    const shotFired = attemptShoot(agent, world, kb);
+                    if (shotFired) {
+                        inferAll(agent, world, kb);
+                        agent.path = planPath(agent, world);
+                        if (agent.path.length > 0) {
+                            agent.stalled = false;
+                            render();
+                            return;
+                        }
+                    }
                 }
                 agent.stalled = true;
                 render();
@@ -426,14 +493,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        const nextKey  = agent.path.shift();
-        const [nr, nc] = nextKey.split(',').map(Number);
+        const nextKey        = agent.path.shift();
+        const [nr, nc]       = nextKey.split(',').map(Number);
         const isNewDiscovery = !agent.visited.has(nextKey);
-        
+
         agent.r = nr;
         agent.c = nc;
         agent.visited.add(nextKey);
-        agent.safe.add(nextKey); 
 
         if (world.pits.has(nextKey)) {
             agent.gameOver = true;
@@ -442,20 +508,22 @@ document.addEventListener('DOMContentLoaded', () => {
             agent.gameOver = true;
             agent.percepts = ['Eaten by the Wumpus'];
         } else {
+            agent.safe.add(nextKey);
+
             const p = tellPerceptAxioms(nr, nc, world, kb);
             agent.percepts = formatPercepts(p);
-            
+
             if (p.glitter && !agent.hasGold) {
-                agent.hasGold = true;
+                agent.hasGold     = true;
                 agent.goldFoundAt = `${agent.r},${agent.c}`;
-                agent.percepts = ['Glitter ✨ — Gold found! Returning...'];
-                agent.path = []; 
+                agent.percepts    = ['Glitter ✨ — Gold found! Returning...'];
+                agent.path        = [];
             }
         }
 
         if (agent.hasGold && agent.r === 1 && agent.c === 1) {
             agent.gameWon = true;
-            agent.path = [];
+            agent.path    = [];
         }
 
         if (!agent.gameOver && !agent.gameWon) {
@@ -470,5 +538,4 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     DOM.startBtn.click();
-
 });

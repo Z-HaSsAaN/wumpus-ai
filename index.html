@@ -84,9 +84,10 @@
                     <h3>Algorithm</h3>
                     <p class="help-text">
                         KB stores percept biconditionals in <strong>CNF</strong>.
-                        The agent uses <strong>Set-of-Support Resolution Refutation</strong> 
-                        to prove a cell is safe before entering it. The Wumpus is only shot if 
-                        its location is mathematically proven.
+                        The agent uses <strong>Set-of-Support Resolution Refutation</strong>
+                        to prove a cell is safe before entering it. The Wumpus is shot if
+                        its location is proven, or speculatively if the agent is stalled
+                        and detects stench.
                     </p>
                 </div>
             </div>

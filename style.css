@@ -1,4 +1,5 @@
 /* Identification: 24F-0736 */
+/*style.css*/
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 html { color-scheme: light; }
@@ -114,14 +115,14 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
     border-bottom: 1px solid transparent;
 }
 .status-banner.hidden { display: none; }
-.status-banner.win { background: #ecfdf5; color: #065f46; border-bottom-color: #10b981; }
+.status-banner.win  { background: #ecfdf5; color: #065f46; border-bottom-color: #10b981; }
 .status-banner.dead { background: #fef2f2; color: #991b1b; border-bottom-color: #ef4444; }
 .status-banner.stalled { background: #fffbeb; color: #92400e; border-bottom-color: #f59e0b; }
 
 main { display: flex; }
 
 .panel { padding: 28px; }
-.left-panel { flex: 2; border-right: 1px solid #e4e4e7; background: #fafafa; }
+.left-panel  { flex: 2; border-right: 1px solid #e4e4e7; background: #fafafa; }
 .right-panel { flex: 1; background: #fff; min-width: 260px; }
 
 .grid-container {
@@ -139,15 +140,15 @@ main { display: flex; }
     justify-content: center;
     border: 1px solid #a1a1aa;
     border-radius: 8px;
-    background: #d4d4d8; 
+    background: #d4d4d8;
     transition: background 0.2s, border-color 0.2s;
 }
 
-.cell.safe { background: #dcfce7; border-color: #86efac; }
+.cell.safe   { background: #dcfce7; border-color: #86efac; }
 .cell.danger { background: #fef2f2; border-color: #ef4444; border-width: 2px; }
-.cell.gold { background: #fffbeb; border-color: #fcd34d; border-width: 2px; }
+.cell.gold   { background: #fffbeb; border-color: #fcd34d; border-width: 2px; }
 
-.cell.agent { border: 2px solid #3b82f6; background: #eff6ff; }
+.cell.agent      { border: 2px solid #3b82f6; background: #eff6ff; }
 .cell.agent.dead { border-color: #ef4444; background: #fef2f2; }
 .cell.agent.won  { border-color: #f59e0b; background: #fffbeb; }
 
@@ -158,10 +159,10 @@ main { display: flex; }
     color: #1e293b;
 }
 
-.cell.agent .cell-icon { color: #2563eb; }
+.cell.agent      .cell-icon { color: #2563eb; }
 .cell.agent.dead .cell-icon { color: #dc2626; }
-.cell.danger .cell-icon { color: #b91c1c; }
-.cell.gold .cell-icon { color: #d97706; }
+.cell.danger     .cell-icon { color: #b91c1c; }
+.cell.gold       .cell-icon { color: #d97706; }
 
 .coord-label {
     position: absolute;
@@ -207,7 +208,7 @@ main { display: flex; }
     margin-top: 6px;
     font-size: 0.875rem;
     font-weight: 600;
-    color: #16a34a; 
+    color: #16a34a;
 }
 .arrow-status.used { color: #71717a; }
 
@@ -229,11 +230,11 @@ main { display: flex; }
     font-size: 0.72rem; font-weight: 700;
     flex-shrink: 0;
 }
-.legend-box.agent { border: 2px solid #3b82f6; background: #eff6ff; color: #2563eb; }
-.legend-box.safe { background: #dcfce7; border-color: #86efac; }
+.legend-box.agent   { border: 2px solid #3b82f6; background: #eff6ff; color: #2563eb; }
+.legend-box.safe    { background: #dcfce7; border-color: #86efac; }
 .legend-box.unknown { background: #d4d4d8; border-color: #a1a1aa; }
-.legend-box.danger { background: #fef2f2; border-color: #ef4444; color: #b91c1c; }
-.legend-box.gold { background: #fffbeb; border-color: #fcd34d; color: #d97706; }
+.legend-box.danger  { background: #fef2f2; border-color: #ef4444; color: #b91c1c; }
+.legend-box.gold    { background: #fffbeb; border-color: #fcd34d; color: #d97706; }
 
 .help-text {
     font-size: 0.85rem;
